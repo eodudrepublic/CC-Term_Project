@@ -1,0 +1,291 @@
+# oj-redis Deployment and Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oj-redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oj-redis
+  template:
+    metadata:
+      labels:
+        app: oj-redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:4.0-alpine
+        volumeMounts:
+        - mountPath: /data
+          name: redis-data
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        restartPolicy: Always
+      volumes:
+      - name: redis-data
+        persistentVolumeClaim:
+          claimName: redis-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oj-redis
+spec:
+  selector:
+    app: oj-redis
+  ports:
+    - protocol: TCP
+      port: 6379
+      targetPort: 6379
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+# oj-postgres Deployment and Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oj-postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oj-postgres
+  template:
+    metadata:
+      labels:
+        app: oj-postgres
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:10-alpine
+        env:
+        - name: POSTGRES_DB
+          value: "onlinejudge"
+        - name: POSTGRES_USER
+          value: "onlinejudge"
+        - name: POSTGRES_PASSWORD
+          value: "onlinejudge"
+        volumeMounts:
+        - mountPath: /var/lib/postgresql/data
+          name: postgres-data
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        restartPolicy: Always
+      volumes:
+      - name: postgres-data
+        persistentVolumeClaim:
+          claimName: postgres-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oj-postgres
+spec:
+  selector:
+    app: oj-postgres
+  ports:
+    - protocol: TCP
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+# oj-judge Deployment and Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oj-judge
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oj-judge
+  template:
+    metadata:
+      labels:
+        app: oj-judge
+    spec:
+      containers:
+      - name: judge
+        image: registry.cn-hongkong.aliyuncs.com/oj-image/judge:1.6.1
+        env:
+        - name: SERVICE_URL
+          value: "http://oj-judge:8080"
+        - name: BACKEND_URL
+          value: "http://oj-backend:8000/api/judge_server_heartbeat/"
+        - name: TOKEN
+          value: "CHANGE_THIS"
+        volumeMounts:
+        - mountPath: /test_case
+          name: test-case
+          readOnly: true
+        - mountPath: /log
+          name: judge-log
+        - mountPath: /judger
+          name: judge-run
+        securityContext:
+          capabilities:
+            drop: ["SETPCAP", "MKNOD", "NET_BIND_SERVICE", "SYS_CHROOT", "SETFCAP", "FSETID"]
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        restartPolicy: Always
+      volumes:
+      - name: test-case
+        persistentVolumeClaim:
+          claimName: test-case-pvc
+      - name: judge-log
+        persistentVolumeClaim:
+          claimName: judge-log-pvc
+      - name: judge-run
+        persistentVolumeClaim:
+          claimName: judge-run-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oj-judge
+spec:
+  selector:
+    app: oj-judge
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: test-case-pvc
+spec:
+  accessModes:
+    - ReadOnlyMany
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: judge-log-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: judge-run-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+# oj-backend Deployment and Service
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oj-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oj-backend
+  template:
+    metadata:
+      labels:
+        app: oj-backend
+    spec:
+      containers:
+      - name: backend
+        image: registry.cn-hongkong.aliyuncs.com/oj-image/backend:1.6.1
+        env:
+        - name: POSTGRES_DB
+          value: "onlinejudge"
+        - name: POSTGRES_USER
+          value: "onlinejudge"
+        - name: POSTGRES_PASSWORD
+          value: "onlinejudge"
+        - name: JUDGE_SERVER_TOKEN
+          value: "CHANGE_THIS"
+        volumeMounts:
+        - mountPath: /data
+          name: backend-data
+        ports:
+        - containerPort: 8000
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        restartPolicy: Always
+      volumes:
+      - name: backend-data
+        persistentVolumeClaim:
+          claimName: backend-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oj-backend
+spec:
+  selector:
+    app: oj-backend
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8000
+    - protocol: TCP
+      port: 443
+      targetPort: 1443
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backend-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
